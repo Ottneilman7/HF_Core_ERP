@@ -16,6 +16,12 @@ export default function Card({ children }: CardProps) {
         border: `1px solid ${colors.border}`,
         boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
         minWidth: "320px",
+
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+
+        textAlign: "center",
       }}
     >
       {children}
