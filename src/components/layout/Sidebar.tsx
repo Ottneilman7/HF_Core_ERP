@@ -1,14 +1,39 @@
 import { colors } from "../../theme/colors";
+import { Link } from "react-router-dom";
 
 const menuItems = [
-  "🏠 Dashboard",
-  "📦 Inventario",
-  "🏭 Producción",
-  "🛒 Ventas",
-  "👥 Clientes",
-  "💰 Finanzas",
-  "📊 Reportes",
-  "⚙ Configuración",
+  {
+    label: "🏠 Centro de Decisiones",
+    path: "/",
+  },
+  {
+    label: "📦 Inventario",
+    path: "/inventory",
+  },
+  {
+    label: "🏭 Producción",
+    path: "/production",
+  },
+  {
+    label: "🛒 Compras",
+    path: "/purchases",
+  },
+  {
+    label: "💰 Ventas",
+    path: "/sales",
+  },
+  {
+    label: "👥 Clientes",
+    path: "/customers",
+  },
+  {
+    label: "📈 Finanzas",
+    path: "/finance",
+  },
+  {
+    label: "⚙ Configuración",
+    path: "/settings",
+  },
 ];
 
 export default function Sidebar() {
@@ -33,15 +58,21 @@ export default function Sidebar() {
       </h2>
 
       {menuItems.map((item) => (
-        <div
-          key={item}
+        <Link
+          key={item.path}
+          to={item.path}
           style={{
+            display: "block",
             marginBottom: "18px",
+            color: colors.text,
+            textDecoration: "none",
             cursor: "pointer",
+            padding: "8px",
+            borderRadius: "8px",
           }}
         >
-          {item}
-        </div>
+          {item.label}
+        </Link>
       ))}
     </aside>
   );

@@ -1,12 +1,5 @@
-import MainLayout from "./layouts/MainLayout";
-import CustomersPage from "./pages/CustomersPage";
+import AppRouter from "./router/AppRouter";
 
-function App() {
-  return (
-    <MainLayout>
-      <CustomersPage />
-    </MainLayout>
-  );
+export default function App() {
+  return <AppRouter />;
 }
-
-export default App;

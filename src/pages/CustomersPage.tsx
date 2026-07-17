@@ -31,12 +31,13 @@ export default function CustomersPage() {
 
       <div
         style={{
-          display: "flex",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
           gap: "20px",
           marginBottom: "30px",
-          flexWrap: "wrap",
         }}
       >
+      
         <StatCard
           title="Clientes"
           value={customers.length}
