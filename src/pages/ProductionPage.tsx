@@ -7,7 +7,7 @@ import { colors } from "../theme/colors";
 import { typography } from "../theme/typography";
 import { recipes } from "../data/recipes";
 import { products } from "../data/products";
-import { rawMaterials } from "../data/rawMaterials";
+import { getEffectiveRawMaterials } from "../services/rawMaterialInventoryService";
 import {
   calculateProductionNeeds,
   calculateMaxProducible,
@@ -45,6 +45,7 @@ export default function ProductionPage() {
     if (!selectedRecipe) return;
 
     try {
+      const rawMaterials = getEffectiveRawMaterials(); // ADR-005: incluye lo recibido en Compras
       const needs = calculateProductionNeeds(selectedRecipe, quantity, rawMaterials, recipes);
       setResults(needs);
 
