@@ -8,6 +8,8 @@ import { typography } from "../theme/typography";
 import { recipes } from "../data/recipes";
 import { products } from "../data/products";
 import { getEffectiveRawMaterials } from "../services/rawMaterialInventoryService";
+import { getEffectiveRecipes } from "../services/recipeStockService";
+import { confirmProduction } from "../services/productionExecutionService";
 import {
   calculateProductionNeeds,
   calculateMaxProducible,
@@ -35,6 +37,7 @@ export default function ProductionPage() {
   const [quantity, setQuantity] = useState<number>(0);
   const [results, setResults] = useState<ProductionNeed[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
 
   const { reportProductionNeeds } = useProductionAlerts();
   const selectedRecipe = recipes.find((r) => r.id === selectedId);
@@ -42,16 +45,18 @@ export default function ProductionPage() {
   function handleCalculate() {
     setError(null);
     setResults(null);
+    setConfirmMessage(null);
     if (!selectedRecipe) return;
 
     try {
       const rawMaterials = getEffectiveRawMaterials(); // ADR-005: incluye lo recibido en Compras
-      const needs = calculateProductionNeeds(selectedRecipe, quantity, rawMaterials, recipes);
+      const effectiveRecipes = getEffectiveRecipes(); // BP-021: incluye stock real de semielaborados
+      const needs = calculateProductionNeeds(selectedRecipe, quantity, rawMaterials, effectiveRecipes);
       setResults(needs);
 
       const shortages = getShortages(needs);
       const warnings = getLowStockWarnings(needs);
-      const maxProducible = calculateMaxProducible(selectedRecipe, rawMaterials, recipes);
+      const maxProducible = calculateMaxProducible(selectedRecipe, rawMaterials, effectiveRecipes);
 
       reportProductionNeeds(
         selectedRecipe.id,
@@ -61,6 +66,23 @@ export default function ProductionPage() {
         maxProducible,
         selectedRecipe.yieldUnit
       );
+    } catch (err) {
+      setError(err instanceof ProductionCalculationError ? err.message : "Error desconocido.");
+    }
+  }
+
+  function handleConfirmProduction() {
+    setError(null);
+    setConfirmMessage(null);
+    if (!selectedRecipe) return;
+
+    try {
+      confirmProduction(selectedRecipe, quantity);
+      setConfirmMessage(
+        `Producción confirmada: ${quantity} ${selectedRecipe.yieldUnit} de ${getProducibleLabel(selectedRecipe.id)}. Materia prima e inventario actualizados.`
+      );
+      setResults(null);
+      setQuantity(0);
     } catch (err) {
       setError(err instanceof ProductionCalculationError ? err.message : "Error desconocido.");
     }
@@ -120,6 +142,9 @@ export default function ProductionPage() {
         </p>
 
         {error && <p style={{ color: "#c62828", marginTop: "10px" }}>{error}</p>}
+        {confirmMessage && (
+          <p style={{ color: colors.primary, marginTop: "10px", fontSize: "14px" }}>✅ {confirmMessage}</p>
+        )}
       </Card>
 
       {results && (
@@ -146,6 +171,26 @@ export default function ProductionPage() {
               </span>
             </div>
           ))}
+
+          {results.every((n) => n.isSufficient) && (
+            <button
+              onClick={handleConfirmProduction}
+              style={{
+                marginTop: "8px",
+                padding: "10px 18px",
+                fontSize: "14px",
+                fontWeight: 600,
+                borderRadius: "999px",
+                border: "none",
+                background: "linear-gradient(145deg, #66BB6A, #2E7D32)",
+                color: "#fff",
+                cursor: "pointer",
+                boxShadow: "0 4px 10px rgba(46,125,50,0.4)",
+              }}
+            >
+              ✔ Confirmar producción
+            </button>
+          )}
         </Card>
       )}
     </div>

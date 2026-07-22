@@ -26,7 +26,7 @@ function getTodaysPhrase(): string {
 const actions = [
   { label: "🏭 Producir", path: "/production", description: "Decide cuánto vas a fabricar hoy" },
   { label: "💰 Vender", path: "/sales", description: "Registra ventas y revisa pedidos" },
-  { label: "📇 Cobrar", path: "/customers", description: "Clientes con pagos pendientes" },
+  { label: "📇 Cobrar", path: "/finance", description: "Clientes con pagos pendientes" },
   { label: "🛒 Comprar", path: "/purchases", description: "Materia prima que necesitas reponer" },
   { label: "📣 Promocionar", path: "/marketing", description: "Ideas para redes y ventas online" },
 ];

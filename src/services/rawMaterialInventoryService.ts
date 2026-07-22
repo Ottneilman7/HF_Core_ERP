@@ -68,3 +68,25 @@ export function receiveStock(rawMaterialId: string, quantityReceived: number, ne
   };
   writeOverrides(overrides);
 }
+
+/**
+ * Aplica el consumo real de materia prima al confirmar una producción
+ * (BP-021, Producción Fase 2). Resta del stock vigente sin tocar el costo.
+ */
+export function consumeStock(rawMaterialId: string, quantityConsumed: number): void {
+  const current = getRawMaterialById(rawMaterialId);
+  if (!current) {
+    throw new Error(`Materia prima no encontrada: ${rawMaterialId}`);
+  }
+  if (quantityConsumed > current.currentStock) {
+    throw new Error(`Inventario insuficiente de ${current.name} (disponible: ${current.currentStock}).`);
+  }
+
+  const overrides = readOverrides();
+  overrides[rawMaterialId] = {
+    currentStock: current.currentStock - quantityConsumed,
+    unitCost: current.unitCost,
+    updatedAt: new Date().toISOString(),
+  };
+  writeOverrides(overrides);
+}

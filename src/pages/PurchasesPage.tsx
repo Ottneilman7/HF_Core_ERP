@@ -1,25 +1,37 @@
 import { useState } from "react";
 import * as purchaseService from "../services/purchaseService";
 import * as rawMaterialInventoryService from "../services/rawMaterialInventoryService";
+import * as recipeStockService from "../services/recipeStockService";
 import type { PurchaseOrderItem } from "../models/PurchaseOrder";
 import { FormInput } from "../components/FormInput";
 import { FormSelect } from "../components/FormSelect";
 import { FormButton } from "../components/FormButton";
 import { colors } from "../theme/colors";
 
+type ItemKind = "rawMaterial" | "semiFinished";
+
 /**
  * Página: Compras (Flujo 3)
  * Ruta: /purchases
+ *
+ * ADR-007: además de materia prima, se puede registrar la compra de un
+ * semielaborado ya hecho (ej. mantequilla de maní comprada a un tercero
+ * en una emergencia, en vez de fabricada internamente).
  */
 export default function PurchasesPage() {
   const [suppliers, setSuppliers] = useState(purchaseService.getSuppliers());
   const [orders, setOrders] = useState(purchaseService.getPurchaseOrders());
-  const rawMaterials = rawMaterialInventoryService.getEffectiveRawMaterials();
+  const rawMaterials = rawMaterialInventoryService.getEffectiveRawMaterials().filter((rm) => rm.active);
+  const semiFinishedRecipes = recipeStockService
+    .getEffectiveRecipes()
+    .filter((r) => r.active && r.tracksInventory);
 
   const [newSupplierName, setNewSupplierName] = useState("");
 
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
+  const [itemKind, setItemKind] = useState<ItemKind>("rawMaterial");
   const [selectedRawMaterialId, setSelectedRawMaterialId] = useState(rawMaterials[0]?.id ?? "");
+  const [selectedRecipeId, setSelectedRecipeId] = useState(semiFinishedRecipes[0]?.id ?? "");
   const [quantity, setQuantity] = useState<number>(0);
   const [unitCost, setUnitCost] = useState<number>(0);
   const [draftItems, setDraftItems] = useState<PurchaseOrderItem[]>([]);
@@ -37,8 +49,14 @@ export default function PurchasesPage() {
   }
 
   function handleAddItemToDraft() {
-    if (!selectedRawMaterialId || quantity <= 0) return;
-    setDraftItems([...draftItems, { rawMaterialId: selectedRawMaterialId, quantity, unitCost }]);
+    if (quantity <= 0) return;
+    if (itemKind === "rawMaterial") {
+      if (!selectedRawMaterialId) return;
+      setDraftItems([...draftItems, { rawMaterialId: selectedRawMaterialId, quantity, unitCost }]);
+    } else {
+      if (!selectedRecipeId) return;
+      setDraftItems([...draftItems, { componentRecipeId: selectedRecipeId, quantity, unitCost }]);
+    }
     setQuantity(0);
     setUnitCost(0);
   }
@@ -55,8 +73,15 @@ export default function PurchasesPage() {
     refresh();
   }
 
-  function rawMaterialName(id: string): string {
-    return rawMaterials.find((rm) => rm.id === id)?.name ?? id;
+  function itemLabel(item: PurchaseOrderItem): string {
+    if (item.rawMaterialId) {
+      return rawMaterials.find((rm) => rm.id === item.rawMaterialId)?.name ?? item.rawMaterialId;
+    }
+    if (item.componentRecipeId) {
+      const recipe = semiFinishedRecipes.find((r) => r.id === item.componentRecipeId);
+      return `${recipe?.name ?? item.componentRecipeId} (semielaborado, comprado ya hecho)`;
+    }
+    return "Ítem desconocido";
   }
 
   function supplierName(id: string): string {
@@ -75,8 +100,7 @@ export default function PurchasesPage() {
     <div style={{ maxWidth: "720px" }}>
       <h1 style={{ color: colors.text }}>Compras</h1>
       <p style={{ color: colors.textMuted }}>
-        Proveedores, órdenes de compra y recepción — al recibir, el stock y el costo real de la materia
-        prima se actualizan automáticamente.
+        Proveedores, órdenes de compra y recepción — al recibir, el stock real se actualiza automáticamente.
       </p>
 
       <section style={sectionStyle}>
@@ -122,16 +146,44 @@ export default function PurchasesPage() {
         </FormSelect>
 
         <FormSelect
-          label="Materia prima"
-          value={selectedRawMaterialId}
-          onChange={(e) => setSelectedRawMaterialId(e.target.value)}
+          label="¿Qué estás comprando?"
+          value={itemKind}
+          onChange={(e) => setItemKind(e.target.value as ItemKind)}
         >
-          {rawMaterials.map((rm) => (
-            <option key={rm.id} value={rm.id}>
-              {rm.name} (stock actual: {rm.currentStock} {rm.unit})
-            </option>
-          ))}
+          <option value="rawMaterial">Materia prima</option>
+          <option value="semiFinished">Semielaborado ya hecho (ej. emergencia)</option>
         </FormSelect>
+
+        {itemKind === "rawMaterial" ? (
+          <FormSelect
+            label="Materia prima"
+            value={selectedRawMaterialId}
+            onChange={(e) => setSelectedRawMaterialId(e.target.value)}
+          >
+            {rawMaterials.map((rm) => (
+              <option key={rm.id} value={rm.id}>
+                {rm.name} (stock actual: {rm.currentStock} {rm.unit})
+              </option>
+            ))}
+          </FormSelect>
+        ) : (
+          <>
+            <FormSelect
+              label="Semielaborado"
+              value={selectedRecipeId}
+              onChange={(e) => setSelectedRecipeId(e.target.value)}
+            >
+              {semiFinishedRecipes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} (stock actual: {r.currentStock ?? 0} {r.unit})
+                </option>
+              ))}
+            </FormSelect>
+            <p style={{ color: colors.warning, fontSize: "12px", marginTop: "-8px", marginBottom: "16px" }}>
+              ⚠️ Uso excepcional: normalmente esto se fabrica en /production, no se compra.
+            </p>
+          </>
+        )}
 
         <div style={{ display: "flex", gap: "12px" }}>
           <div style={{ flex: 1 }}>
@@ -167,7 +219,7 @@ export default function PurchasesPage() {
             <ul style={{ color: colors.text, paddingLeft: "18px" }}>
               {draftItems.map((item, idx) => (
                 <li key={idx}>
-                  {rawMaterialName(item.rawMaterialId)} — {item.quantity} × ${item.unitCost}
+                  {itemLabel(item)} — {item.quantity} × ${item.unitCost}
                 </li>
               ))}
             </ul>
@@ -215,7 +267,7 @@ export default function PurchasesPage() {
             <ul style={{ color: colors.textMuted, fontSize: "13px", marginTop: "8px", paddingLeft: "18px" }}>
               {order.items.map((item, idx) => (
                 <li key={idx}>
-                  {rawMaterialName(item.rawMaterialId)} — {item.quantity} × ${item.unitCost}
+                  {itemLabel(item)} — {item.quantity} × ${item.unitCost}
                 </li>
               ))}
             </ul>
