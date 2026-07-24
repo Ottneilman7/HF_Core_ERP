@@ -1,92 +1,63 @@
 /**
- * Servicio: Inventario real de Materia Prima
+ * Servicio: Inventario real de Materia Prima — Fase Firestore (BP-025)
  *
- * ADR-005: rawMaterials.ts sigue siendo la SEMILLA (no se edita a mano
- * nunca más para reflejar stock/costo real). localStorage guarda el
- * override vigente de currentStock/unitCost por materia prima, igual
- * patrón que configService.ts (BP-016) aplicado por primera vez a datos
- * de catálogo en vez de a Configuración.
+ * Reemplaza la versión de localStorage (ADR-005/BP-018). Mismas
+ * funciones, mismo comportamiento (todo o nada donde aplica) — ahora
+ * async, leyendo/escribiendo la colección
+ * businesses/{CURRENT_BUSINESS_ID}/rawMaterials.
  *
- * RawMaterial.ts (el modelo) NO se toca — Regla 1, AI_CONTEXT.md.
+ * rawMaterials.ts (la semilla) ya NO se importa aquí — Firestore es la
+ * única fuente de verdad a partir de la migración (ver
+ * MigrateRawMaterialsPage.tsx, ejecutada una sola vez).
  */
+import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
 import type { RawMaterial } from "../models/RawMaterial";
-import { rawMaterials as seedRawMaterials } from "../data/rawMaterials";
 
-interface RawMaterialOverride {
-  currentStock: number;
-  unitCost: number;
-  updatedAt: string;
+function rawMaterialsCollectionRef() {
+  return collection(db, "businesses", CURRENT_BUSINESS_ID, "rawMaterials");
 }
 
-const OVERRIDES_KEY = "hf_rawmaterial_overrides";
-
-function readOverrides(): Record<string, RawMaterialOverride> {
-  const raw = localStorage.getItem(OVERRIDES_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, RawMaterialOverride>;
-  } catch {
-    return {};
-  }
+function rawMaterialDocRef(id: string) {
+  return doc(db, "businesses", CURRENT_BUSINESS_ID, "rawMaterials", id);
 }
 
-function writeOverrides(overrides: Record<string, RawMaterialOverride>): void {
-  localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
+export async function getEffectiveRawMaterials(): Promise<RawMaterial[]> {
+  const snap = await getDocs(rawMaterialsCollectionRef());
+  return snap.docs.map((d) => d.data() as RawMaterial);
 }
 
-/** Devuelve el catálogo real: semilla + override vigente (si existe). */
-export function getEffectiveRawMaterials(): RawMaterial[] {
-  const overrides = readOverrides();
-  return seedRawMaterials.map((rm) => {
-    const override = overrides[rm.id];
-    if (!override) return rm;
-    return { ...rm, currentStock: override.currentStock, unitCost: override.unitCost };
-  });
+export async function getRawMaterialById(id: string): Promise<RawMaterial | undefined> {
+  const snap = await getDoc(rawMaterialDocRef(id));
+  return snap.exists() ? (snap.data() as RawMaterial) : undefined;
 }
 
-export function getRawMaterialById(id: string): RawMaterial | undefined {
-  return getEffectiveRawMaterials().find((rm) => rm.id === id);
-}
-
-/**
- * Aplica el efecto de recibir una compra: suma `quantityReceived` al stock
- * vigente y, si se indica `newUnitCost`, reemplaza el costo (costo del
- * proveedor de este pedido, tal como pide EL-Verdadero-MVP-EIF.md: "Recepción
- * → Actualización de costos").
- */
-export function receiveStock(rawMaterialId: string, quantityReceived: number, newUnitCost?: number): void {
-  const current = getRawMaterialById(rawMaterialId);
+export async function receiveStock(
+  rawMaterialId: string,
+  quantityReceived: number,
+  newUnitCost?: number
+): Promise<void> {
+  const current = await getRawMaterialById(rawMaterialId);
   if (!current) {
     throw new Error(`Materia prima no encontrada: ${rawMaterialId}`);
   }
-
-  const overrides = readOverrides();
-  overrides[rawMaterialId] = {
+  await setDoc(rawMaterialDocRef(rawMaterialId), {
+    ...current,
     currentStock: current.currentStock + quantityReceived,
     unitCost: newUnitCost ?? current.unitCost,
-    updatedAt: new Date().toISOString(),
-  };
-  writeOverrides(overrides);
+  });
 }
 
-/**
- * Aplica el consumo real de materia prima al confirmar una producción
- * (BP-021, Producción Fase 2). Resta del stock vigente sin tocar el costo.
- */
-export function consumeStock(rawMaterialId: string, quantityConsumed: number): void {
-  const current = getRawMaterialById(rawMaterialId);
+export async function consumeStock(rawMaterialId: string, quantityConsumed: number): Promise<void> {
+  const current = await getRawMaterialById(rawMaterialId);
   if (!current) {
     throw new Error(`Materia prima no encontrada: ${rawMaterialId}`);
   }
   if (quantityConsumed > current.currentStock) {
     throw new Error(`Inventario insuficiente de ${current.name} (disponible: ${current.currentStock}).`);
   }
-
-  const overrides = readOverrides();
-  overrides[rawMaterialId] = {
+  await setDoc(rawMaterialDocRef(rawMaterialId), {
+    ...current,
     currentStock: current.currentStock - quantityConsumed,
-    unitCost: current.unitCost,
-    updatedAt: new Date().toISOString(),
-  };
-  writeOverrides(overrides);
+  });
 }

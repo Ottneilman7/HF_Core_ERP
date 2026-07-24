@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as purchaseService from "../services/purchaseService";
 import * as rawMaterialInventoryService from "../services/rawMaterialInventoryService";
 import * as recipeStockService from "../services/recipeStockService";
 import type { PurchaseOrderItem } from "../models/PurchaseOrder";
+import type { RawMaterial } from "../models/RawMaterial";
 import { FormInput } from "../components/FormInput";
 import { FormSelect } from "../components/FormSelect";
 import { FormButton } from "../components/FormButton";
@@ -14,14 +15,16 @@ type ItemKind = "rawMaterial" | "semiFinished";
  * Página: Compras (Flujo 3)
  * Ruta: /purchases
  *
- * ADR-007: además de materia prima, se puede registrar la compra de un
- * semielaborado ya hecho (ej. mantequilla de maní comprada a un tercero
- * en una emergencia, en vez de fabricada internamente).
+ * BP-025: rawMaterialInventoryService ahora es Firestore (async) — el
+ * catálogo de materia prima se carga con useEffect + estado de loading.
+ * recipeStockService (semielaborados) sigue en localStorage por ahora
+ * (se migra en BP-026), por eso sigue leyéndose de forma síncrona.
  */
 export default function PurchasesPage() {
   const [suppliers, setSuppliers] = useState(purchaseService.getSuppliers());
   const [orders, setOrders] = useState(purchaseService.getPurchaseOrders());
-  const rawMaterials = rawMaterialInventoryService.getEffectiveRawMaterials().filter((rm) => rm.active);
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [loadingRawMaterials, setLoadingRawMaterials] = useState(true);
   const semiFinishedRecipes = recipeStockService
     .getEffectiveRecipes()
     .filter((r) => r.active && r.tracksInventory);
@@ -30,11 +33,25 @@ export default function PurchasesPage() {
 
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [itemKind, setItemKind] = useState<ItemKind>("rawMaterial");
-  const [selectedRawMaterialId, setSelectedRawMaterialId] = useState(rawMaterials[0]?.id ?? "");
+  const [selectedRawMaterialId, setSelectedRawMaterialId] = useState("");
   const [selectedRecipeId, setSelectedRecipeId] = useState(semiFinishedRecipes[0]?.id ?? "");
   const [quantity, setQuantity] = useState<number>(0);
   const [unitCost, setUnitCost] = useState<number>(0);
   const [draftItems, setDraftItems] = useState<PurchaseOrderItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadRawMaterials = useCallback(async () => {
+    setLoadingRawMaterials(true);
+    const all = await rawMaterialInventoryService.getEffectiveRawMaterials();
+    const active = all.filter((rm) => rm.active);
+    setRawMaterials(active);
+    setSelectedRawMaterialId((prev) => prev || active[0]?.id || "");
+    setLoadingRawMaterials(false);
+  }, []);
+
+  useEffect(() => {
+    loadRawMaterials();
+  }, [loadRawMaterials]);
 
   function refresh() {
     setSuppliers(purchaseService.getSuppliers());
@@ -62,15 +79,29 @@ export default function PurchasesPage() {
   }
 
   function handleCreateOrder() {
-    if (!selectedSupplierId || draftItems.length === 0) return;
+    setError(null);
+    if (!selectedSupplierId) {
+      setError("Selecciona un proveedor antes de crear la orden.");
+      return;
+    }
+    if (draftItems.length === 0) {
+      setError("Agrega al menos un ítem antes de crear la orden.");
+      return;
+    }
     purchaseService.createPurchaseOrder(selectedSupplierId, draftItems);
     setDraftItems([]);
     refresh();
   }
 
-  function handleReceive(orderId: string) {
-    purchaseService.receivePurchaseOrder(orderId);
-    refresh();
+  async function handleReceive(orderId: string) {
+    setError(null);
+    try {
+      await purchaseService.receivePurchaseOrder(orderId);
+      refresh();
+      await loadRawMaterials(); // el stock recién recibido debe reflejarse de inmediato
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo recibir la orden.");
+    }
   }
 
   function itemLabel(item: PurchaseOrderItem): string {
@@ -102,6 +133,10 @@ export default function PurchasesPage() {
       <p style={{ color: colors.textMuted }}>
         Proveedores, órdenes de compra y recepción — al recibir, el stock real se actualiza automáticamente.
       </p>
+
+      {error && (
+        <p style={{ color: colors.danger, marginBottom: "16px" }}>⚠️ {error}</p>
+      )}
 
       <section style={sectionStyle}>
         <h2 style={{ color: colors.text, marginTop: 0 }}>Proveedores</h2>
@@ -155,17 +190,21 @@ export default function PurchasesPage() {
         </FormSelect>
 
         {itemKind === "rawMaterial" ? (
-          <FormSelect
-            label="Materia prima"
-            value={selectedRawMaterialId}
-            onChange={(e) => setSelectedRawMaterialId(e.target.value)}
-          >
-            {rawMaterials.map((rm) => (
-              <option key={rm.id} value={rm.id}>
-                {rm.name} (stock actual: {rm.currentStock} {rm.unit})
-              </option>
-            ))}
-          </FormSelect>
+          loadingRawMaterials ? (
+            <p style={{ color: colors.textMuted, fontSize: "13px" }}>Cargando materia prima...</p>
+          ) : (
+            <FormSelect
+              label="Materia prima"
+              value={selectedRawMaterialId}
+              onChange={(e) => setSelectedRawMaterialId(e.target.value)}
+            >
+              {rawMaterials.map((rm) => (
+                <option key={rm.id} value={rm.id}>
+                  {rm.name} (stock actual: {rm.currentStock} {rm.unit})
+                </option>
+              ))}
+            </FormSelect>
+          )
         ) : (
           <>
             <FormSelect

@@ -1,75 +1,72 @@
 /**
- * Servicio: Configuración del negocio
+ * Servicio: Configuración del negocio — Fase Firestore (BP-024)
  *
- * Implementa BP-015 Fase 1 (localStorage como puente) por primera vez,
- * empezando por Configuración porque es el primer dato que un negocio
- * real necesita que sobreviva a recargar la página. El mismo patrón
- * (read/write con seed por defecto) se reutilizará para Producción,
- * Compras, Ventas, etc. cuando se aborden en BP-015 Fase 1 completa.
+ * Reemplaza la versión de localStorage (BP-016). Mismos nombres de
+ * función, misma forma de los datos — solo cambia el mecanismo de
+ * persistencia (ahora asíncrono) y la ubicación (Firestore, documento
+ * businesses/{CURRENT_BUSINESS_ID}, ver ADR-008).
  */
-import type { Company } from '../models/Company';
-import type { BusinessParameters } from '../models/BusinessParameters';
-import type { TaxConfig } from '../models/TaxConfig';
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db, CURRENT_BUSINESS_ID } from "../lib/firebase";
+import type { Company } from "../models/Company";
+import type { BusinessParameters } from "../models/BusinessParameters";
+import type { TaxConfig } from "../models/TaxConfig";
 
-const STORAGE_KEYS = {
-  company: 'hf_config_company',
-  parameters: 'hf_config_parameters',
-  taxConfig: 'hf_config_taxes',
-} as const;
+const businessDocRef = doc(db, "businesses", CURRENT_BUSINESS_ID);
 
-function read<T>(key: string): T | null {
-  const raw = localStorage.getItem(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
+interface BusinessDocument {
+  company?: Company;
+  parameters?: BusinessParameters;
+  taxConfig?: TaxConfig;
 }
 
-function write<T>(key: string, value: T): void {
-  localStorage.setItem(key, JSON.stringify(value));
+async function readBusinessDoc(): Promise<BusinessDocument> {
+  const snap = await getDoc(businessDocRef);
+  return (snap.data() as BusinessDocument) ?? {};
 }
 
-export function getCompany(): Company | null {
-  return read<Company>(STORAGE_KEYS.company);
+export async function getCompany(): Promise<Company | null> {
+  const data = await readBusinessDoc();
+  return data.company ?? null;
 }
 
-export function saveCompany(company: Company): void {
-  write(STORAGE_KEYS.company, company);
+export async function saveCompany(company: Company): Promise<void> {
+  await setDoc(businessDocRef, { company }, { merge: true });
 }
 
-export function isCompanyConfigured(): boolean {
-  return getCompany() !== null;
+export async function isCompanyConfigured(): Promise<boolean> {
+  return (await getCompany()) !== null;
 }
 
 const DEFAULT_PARAMETERS: BusinessParameters = {
-  id: 'default',
-  baseCurrency: 'USD',
+  id: "default",
+  baseCurrency: "USD",
   defaultMarginPercentage: 30,
-  defaultWeightUnit: 'g',
-  defaultVolumeUnit: 'ml',
+  defaultWeightUnit: "g",
+  defaultVolumeUnit: "ml",
   updatedAt: new Date(0).toISOString(),
 };
 
-export function getParameters(): BusinessParameters {
-  return read<BusinessParameters>(STORAGE_KEYS.parameters) ?? DEFAULT_PARAMETERS;
+export async function getParameters(): Promise<BusinessParameters> {
+  const data = await readBusinessDoc();
+  return data.parameters ?? DEFAULT_PARAMETERS;
 }
 
-export function saveParameters(parameters: BusinessParameters): void {
-  write(STORAGE_KEYS.parameters, parameters);
+export async function saveParameters(parameters: BusinessParameters): Promise<void> {
+  await setDoc(businessDocRef, { parameters }, { merge: true });
 }
 
 const DEFAULT_TAX_CONFIG: TaxConfig = {
-  id: 'default',
+  id: "default",
   taxes: [],
   updatedAt: new Date(0).toISOString(),
 };
 
-export function getTaxConfig(): TaxConfig {
-  return read<TaxConfig>(STORAGE_KEYS.taxConfig) ?? DEFAULT_TAX_CONFIG;
+export async function getTaxConfig(): Promise<TaxConfig> {
+  const data = await readBusinessDoc();
+  return data.taxConfig ?? DEFAULT_TAX_CONFIG;
 }
 
-export function saveTaxConfig(taxConfig: TaxConfig): void {
-  write(STORAGE_KEYS.taxConfig, taxConfig);
+export async function saveTaxConfig(taxConfig: TaxConfig): Promise<void> {
+  await setDoc(businessDocRef, { taxConfig }, { merge: true });
 }

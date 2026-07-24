@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type CSSProperties } from "react";
+import { useState, useEffect, type FormEvent, type CSSProperties } from "react";
 import { useConfig } from "../contexts/ConfigContext";
 import * as configService from "../services/configService";
 import type { Company } from "../models/Company";
@@ -11,23 +11,42 @@ import { colors } from "../theme/colors";
  * Página: Configuración del negocio (Flujo 1)
  * Ruta: /settings
  *
- * BP-017: estilos actualizados a FormInput/FormButton (dejó de usar
- * <input>/<button> planos), consistente con el resto del ERP.
+ * BP-024: configService/ConfigContext ahora leen de Firestore (async).
+ * Los formularios se sincronizan con un useEffect cuando los datos llegan
+ * (antes, con localStorage, estaban disponibles de inmediato en el mount).
  */
 export default function ConfigPage() {
-  const { company, parameters, taxConfig, refresh } = useConfig();
+  const { company, parameters, taxConfig, loading, refresh } = useConfig();
 
-  const [companyForm, setCompanyForm] = useState<Partial<Company>>(
-    company ?? { legalName: "", tradeName: "", taxId: "", country: "" }
-  );
+  const [companyForm, setCompanyForm] = useState<Partial<Company>>({
+    legalName: "",
+    tradeName: "",
+    taxId: "",
+    country: "",
+  });
   const [baseCurrency, setBaseCurrency] = useState(parameters.baseCurrency);
   const [defaultMargin, setDefaultMargin] = useState(parameters.defaultMarginPercentage);
   const [taxes, setTaxes] = useState<TaxRate[]>(taxConfig.taxes);
   const [newTaxName, setNewTaxName] = useState("");
   const [newTaxPercentage, setNewTaxPercentage] = useState<number>(0);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  function handleSaveCompany(e: FormEvent) {
+  // Sincroniza los formularios en cuanto Firestore responde (loading pasa a false).
+  useEffect(() => {
+    if (!loading) {
+      setCompanyForm(company ?? { legalName: "", tradeName: "", taxId: "", country: "" });
+      setBaseCurrency(parameters.baseCurrency);
+      setDefaultMargin(parameters.defaultMarginPercentage);
+      setTaxes(taxConfig.taxes);
+    }
+  }, [loading, company, parameters, taxConfig]);
+
+  if (loading) {
+    return <p style={{ color: colors.textMuted, padding: "24px" }}>Cargando configuración...</p>;
+  }
+
+  async function handleSaveCompany(e: FormEvent) {
     e.preventDefault();
     const toSave: Company = {
       id: company?.id ?? crypto.randomUUID(),
@@ -40,24 +59,33 @@ export default function ConfigPage() {
       email: companyForm.email,
       createdAt: company?.createdAt ?? new Date().toISOString(),
     };
-    configService.saveCompany(toSave);
-    refresh();
-    setSavedMessage("Datos de la empresa guardados.");
+    await saveCompanyToFirestore(toSave);
   }
 
-  function handleSaveParameters(e: FormEvent) {
+  async function saveCompanyToFirestore(toSave: Company) {
+    try {
+      setSaveError(null);
+      await configService.saveCompany(toSave);
+      await refresh();
+      setSavedMessage("Datos de la empresa guardados.");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "No se pudo guardar. Intenta de nuevo.");
+    }
+  }
+
+  async function handleSaveParameters(e: FormEvent) {
     e.preventDefault();
-    configService.saveParameters({
+    await configService.saveParameters({
       ...parameters,
       baseCurrency,
       defaultMarginPercentage: defaultMargin,
       updatedAt: new Date().toISOString(),
     });
-    refresh();
+    await refresh();
     setSavedMessage("Parámetros guardados.");
   }
 
-  function handleAddTax() {
+  async function handleAddTax() {
     if (!newTaxName.trim()) return;
     const tax: TaxRate = {
       id: crypto.randomUUID(),
@@ -67,17 +95,17 @@ export default function ConfigPage() {
     };
     const updated = [...taxes, tax];
     setTaxes(updated);
-    configService.saveTaxConfig({ ...taxConfig, taxes: updated, updatedAt: new Date().toISOString() });
-    refresh();
+    await configService.saveTaxConfig({ ...taxConfig, taxes: updated, updatedAt: new Date().toISOString() });
+    await refresh();
     setNewTaxName("");
     setNewTaxPercentage(0);
   }
 
-  function handleRemoveTax(id: string) {
+  async function handleRemoveTax(id: string) {
     const updated = taxes.filter((t) => t.id !== id);
     setTaxes(updated);
-    configService.saveTaxConfig({ ...taxConfig, taxes: updated, updatedAt: new Date().toISOString() });
-    refresh();
+    await configService.saveTaxConfig({ ...taxConfig, taxes: updated, updatedAt: new Date().toISOString() });
+    await refresh();
   }
 
   const sectionStyle: CSSProperties = {
@@ -108,6 +136,22 @@ export default function ConfigPage() {
           }}
         >
           {savedMessage}
+        </div>
+      )}
+
+      {saveError && (
+        <div
+          style={{
+            background: `${colors.danger}22`,
+            border: `1px solid ${colors.danger}`,
+            color: colors.danger,
+            borderRadius: "10px",
+            padding: "10px 14px",
+            marginBottom: "20px",
+            fontSize: "14px",
+          }}
+        >
+          ⚠️ {saveError}
         </div>
       )}
 

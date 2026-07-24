@@ -20,6 +20,7 @@ import { ProductionAlertsProvider } from "../contexts/ProductionAlertsContext";
 import { ConfigProvider } from "../contexts/ConfigContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 
+
 export default function AppRouter() {
   return (
     <BrowserRouter>
@@ -60,8 +61,7 @@ function AuthGate() {
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/production" element={<ProductionPage />} />
             <Route path="/customers" element={<CustomersPage />} />
-
-
+            
             {/* Honestidad con el usuario: existen en el menú, no en el producto todavía */}
             <Route path="/purchases" element={<PurchasesPage />} />
             <Route path="/sales" element={<SalesPage />} />

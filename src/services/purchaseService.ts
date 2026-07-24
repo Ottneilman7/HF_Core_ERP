@@ -1,9 +1,15 @@
 /**
  * Servicio: Compras (Flujo 3 — Proveedores → Órdenes de compra → Recepción)
+ *
+ * ADR-007: un ítem puede recibirse como materia prima (suma a
+ * rawMaterialInventoryService, actualiza costo) o como semielaborado
+ * comprado ya hecho — ej. mantequilla de maní de emergencia — que suma
+ * directo a recipeStockService, sin pasar por ningún cálculo de receta.
  */
 import type { Supplier } from "../models/Supplier";
 import type { PurchaseOrder, PurchaseOrderItem } from "../models/PurchaseOrder";
 import * as rawMaterialInventoryService from "./rawMaterialInventoryService";
+import * as recipeStockService from "./recipeStockService";
 
 const SUPPLIERS_KEY = "hf_suppliers";
 const ORDERS_KEY = "hf_purchase_orders";
@@ -56,10 +62,22 @@ export function getPendingOrders(): PurchaseOrder[] {
   return getPurchaseOrders().filter((o) => o.status === "ordered");
 }
 
+function validateItem(item: PurchaseOrderItem): void {
+  const hasRawMaterial = Boolean(item.rawMaterialId);
+  const hasRecipe = Boolean(item.componentRecipeId);
+  if (hasRawMaterial === hasRecipe) {
+    throw new Error(
+      "Cada ítem de compra debe ser materia prima O un semielaborado comprado ya hecho, nunca ambos ni ninguno."
+    );
+  }
+}
+
 export function createPurchaseOrder(supplierId: string, items: PurchaseOrderItem[]): PurchaseOrder {
   if (items.length === 0) {
     throw new Error("Una orden de compra necesita al menos un ítem.");
   }
+  items.forEach(validateItem);
+
   const order: PurchaseOrder = {
     id: crypto.randomUUID(),
     supplierId,
@@ -72,12 +90,12 @@ export function createPurchaseOrder(supplierId: string, items: PurchaseOrderItem
 }
 
 /**
- * Recibir = el efecto real de Compras: por cada ítem, suma stock y
- * actualiza el costo de la materia prima correspondiente
- * (rawMaterialInventoryService). Idempotente: recibir dos veces la
- * misma orden no duplica el stock.
+ * Recibir = el efecto real de Compras: por cada ítem, suma stock —
+ * de materia prima (con actualización de costo) o de semielaborado
+ * comprado ya hecho (sin costo, Recipe.ts no lo modela todavía).
+ * Idempotente: recibir dos veces la misma orden no duplica el efecto.
  */
-export function receivePurchaseOrder(orderId: string): PurchaseOrder {
+export async function receivePurchaseOrder(orderId: string): Promise<PurchaseOrder> {
   const orders = getPurchaseOrders();
   const order = orders.find((o) => o.id === orderId);
   if (!order) {
@@ -87,9 +105,13 @@ export function receivePurchaseOrder(orderId: string): PurchaseOrder {
     return order;
   }
 
-  order.items.forEach((item) => {
-    rawMaterialInventoryService.receiveStock(item.rawMaterialId, item.quantity, item.unitCost);
-  });
+  for (const item of order.items) {
+    if (item.rawMaterialId) {
+      await rawMaterialInventoryService.receiveStock(item.rawMaterialId, item.quantity, item.unitCost);
+    } else if (item.componentRecipeId) {
+      recipeStockService.increaseStock(item.componentRecipeId, item.quantity);
+    }
+  }
 
   order.status = "received";
   order.receivedAt = new Date().toISOString();

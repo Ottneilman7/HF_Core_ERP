@@ -2,7 +2,7 @@
 // entorno (.env.local, NO se sube a git) — ver .env.example en la raíz
 // del proyecto para saber cuáles hacen falta.
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -15,7 +15,16 @@ const firebaseConfig = {
 };
 
 export const firebaseApp = initializeApp(firebaseConfig);
-export const db = getFirestore(firebaseApp);
+
+/**
+ * ignoreUndefinedProperties: true — Firestore por defecto RECHAZA cualquier
+ * campo con valor `undefined` (ej. Company.address/phone/email cuando el
+ * formulario no los llena) y lanza un error que, sin try/catch visible,
+ * parece un guardado silencioso que "no hizo nada". Con esta opción,
+ * Firestore simplemente omite esos campos del documento, igual que hacía
+ * `JSON.stringify` con localStorage. Aplica a todos los módulos futuros.
+ */
+export const db = initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
 export const auth = getAuth(firebaseApp);
 
 /**

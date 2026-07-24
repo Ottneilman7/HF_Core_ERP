@@ -25,13 +25,13 @@ import * as finishedGoodsInventoryService from "./finishedGoodsInventoryService"
  * - al propio stock del semielaborado (`recipeStockService`) si no tiene
  *   `productId` (ej. producir más Granola Base directamente).
  */
-export function confirmProduction(recipe: Recipe, quantityToProduce: number): void {
+export async function confirmProduction(recipe: Recipe, quantityToProduce: number): Promise<void> {
   if (quantityToProduce <= 0) {
     throw new ProductionCalculationError("La cantidad a producir debe ser mayor que cero.");
   }
 
-  const rawMaterials = rawMaterialInventoryService.getEffectiveRawMaterials();
-  const effectiveRecipes = recipeStockService.getEffectiveRecipes();
+  const rawMaterials = await rawMaterialInventoryService.getEffectiveRawMaterials(); // BP-025: Firestore
+  const effectiveRecipes = recipeStockService.getEffectiveRecipes(); // pendiente BP-026: sigue en localStorage
 
   const needs = calculateProductionNeeds(recipe, quantityToProduce, rawMaterials, effectiveRecipes);
 
@@ -44,7 +44,7 @@ export function confirmProduction(recipe: Recipe, quantityToProduce: number): vo
 
   for (const need of needs) {
     if (need.sourceType === "rawMaterial") {
-      rawMaterialInventoryService.consumeStock(need.sourceId, need.requiredQuantity);
+      await rawMaterialInventoryService.consumeStock(need.sourceId, need.requiredQuantity);
     } else {
       recipeStockService.decreaseStock(need.sourceId, need.requiredQuantity);
     }

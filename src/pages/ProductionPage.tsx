@@ -42,15 +42,15 @@ export default function ProductionPage() {
   const { reportProductionNeeds } = useProductionAlerts();
   const selectedRecipe = recipes.find((r) => r.id === selectedId);
 
-  function handleCalculate() {
+  async function handleCalculate() {
     setError(null);
     setResults(null);
     setConfirmMessage(null);
     if (!selectedRecipe) return;
 
     try {
-      const rawMaterials = getEffectiveRawMaterials(); // ADR-005: incluye lo recibido en Compras
-      const effectiveRecipes = getEffectiveRecipes(); // BP-021: incluye stock real de semielaborados
+      const rawMaterials = await getEffectiveRawMaterials(); // BP-025: Firestore, incluye lo recibido en Compras
+      const effectiveRecipes = getEffectiveRecipes(); // BP-021: incluye stock real de semielaborados (localStorage, pendiente BP-026)
       const needs = calculateProductionNeeds(selectedRecipe, quantity, rawMaterials, effectiveRecipes);
       setResults(needs);
 
@@ -71,13 +71,13 @@ export default function ProductionPage() {
     }
   }
 
-  function handleConfirmProduction() {
+  async function handleConfirmProduction() {
     setError(null);
     setConfirmMessage(null);
     if (!selectedRecipe) return;
 
     try {
-      confirmProduction(selectedRecipe, quantity);
+      await confirmProduction(selectedRecipe, quantity);
       setConfirmMessage(
         `Producción confirmada: ${quantity} ${selectedRecipe.yieldUnit} de ${getProducibleLabel(selectedRecipe.id)}. Materia prima e inventario actualizados.`
       );
